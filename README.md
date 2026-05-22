@@ -1,11 +1,12 @@
 # claude-hud
 
 A heads-up display for Claude Code — a live status line pinned to the bottom of
-the terminal. It refreshes on every conversation turn and shows, in one compact
-line:
+the terminal. It refreshes on every conversation turn and packs these segments,
+wrapping across rows to fit your terminal width:
 
 ```
-Opus 4.7 high  ·  ctx 42%  ·  out 1.2k cache 89%  ·  $0.34 12m04s +156-23  ·  session ▕███░░░░░▏ 34% ↺3h12m  ·  weekly ▕████░░░░▏ 52% ↺4d3h  ·  ⎎ main* PR#1234
+Opus 4.7 high  ·  ctx 42%  ·  out 1.2k cache 89%  ·  $0.34 12m04s +156-23
+session ▕███░░░░░▏ 34% ↺3h12m  ·  weekly ▕████░░░░▏ 52% ↺4d3h  ·  ⎎ main* PR#1234
 ```
 
 | Segment | Shows |
@@ -73,6 +74,7 @@ the `env` block of `settings.json`):
 | Variable | Effect |
 | --- | --- |
 | `CLAUDE_HUD_DISABLE=context,tokens,cost,limits,git` | hide any of these segments (comma-separated); the model is always shown |
+| `CLAUDE_HUD_WIDTH=120` | wrap segments to this many columns (default: terminal width, or 80 if unknown) |
 | `CLAUDE_HUD_COLOR=0` / `NO_COLOR=1` | disable ANSI colors |
 
 Example — show only model + context on a narrow terminal:

@@ -9,6 +9,7 @@
  *
  * Override behavior via environment variables (see README.md):
  *   CLAUDE_HUD_DISABLE=context,tokens,cost,limits,git  hide one or more segments
+ *   CLAUDE_HUD_WIDTH=120   wrap segments to this many columns (default: auto)
  *   CLAUDE_HUD_COLOR=0  (or NO_COLOR=1)                 disable ANSI color
  *
  * Run `node bin/statusline.js --demo` to preview with sample data.
@@ -260,8 +261,43 @@ function build(data) {
     if (g) seg.push(g);
   }
 
+  return layout(seg);
+}
+
+// ---- layout: pack segments into rows that fit the terminal width ---------
+
+function visibleWidth(str) {
+  // measured width ignores ANSI color codes (they take no display columns)
+  return str.replace(/\x1b\[[0-9;]*m/g, '').length;
+}
+
+function layout(seg) {
   const sep = '  ' + paint(COL.dim, '·') + '  ';
-  return seg.join(sep);
+  const SEP_W = 5; // visible width of the separator: 2 spaces + dot + 2 spaces
+  let width =
+    parseInt(process.env.CLAUDE_HUD_WIDTH, 10) ||
+    process.stdout.columns ||
+    parseInt(process.env.COLUMNS, 10) ||
+    80;
+  if (!(width > 20)) width = 80;
+
+  const rows = [];
+  let row = [];
+  let rowWidth = 0;
+  for (const s of seg) {
+    const w = visibleWidth(s);
+    const added = row.length ? w + SEP_W : w;
+    if (row.length && rowWidth + added > width) {
+      rows.push(row.join(sep)); // current row is full — start a new one
+      row = [s];
+      rowWidth = w;
+    } else {
+      row.push(s);
+      rowWidth += added;
+    }
+  }
+  if (row.length) rows.push(row.join(sep));
+  return rows.join('\n');
 }
 
 // ---- entry ---------------------------------------------------------------
