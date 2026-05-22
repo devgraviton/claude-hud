@@ -5,7 +5,7 @@ the terminal. It refreshes on every conversation turn and shows, in one compact
 line:
 
 ```
-Opus 4.7 high  ·  ctx 42%  ·  out 1.2k cache 89%  ·  $0.34 12m +156-23  ·  session ▕███░░░░░▏ 34%  ·  weekly ▕████░░░░▏ 52%  ·  ⎎ main* PR#1234
+Opus 4.7 high  ·  ctx 42%  ·  out 1.2k cache 89%  ·  $0.34 12m04s +156-23  ·  session ▕███░░░░░▏ 34% ↺3h12m  ·  weekly ▕████░░░░▏ 52% ↺4d3h  ·  ⎎ main* PR#1234
 ```
 
 | Segment | Shows |
@@ -13,9 +13,9 @@ Opus 4.7 high  ·  ctx 42%  ·  out 1.2k cache 89%  ·  $0.34 12m +156-23  ·  s
 | **Model** | model display name + reasoning effort level |
 | **Context** | percent of the context window used, as text (green &lt;50%, yellow &lt;80%, red above) |
 | **Tokens** | output tokens of the last response + cache-hit rate |
-| **Cost** | session cost (USD), duration, lines added/removed |
-| **Session** | 5-hour usage window, as a percent bar (Claude.ai Pro/Max accounts only) |
-| **Weekly** | 7-day usage window, as a percent bar (Claude.ai Pro/Max accounts only) |
+| **Cost** | session cost (USD), live session timer, lines added/removed |
+| **Session** | 5-hour usage window — percent bar + live countdown to reset (Claude.ai Pro/Max only) |
+| **Weekly** | 7-day usage window — percent bar + live countdown to reset (Claude.ai Pro/Max only) |
 | **Git** | current branch (`*` = uncommitted changes) + open PR number/review state |
 
 Everything is read from the JSON payload Claude Code pipes to the status line
@@ -80,6 +80,29 @@ Example — show only model + context on a narrow terminal:
 ```json
 { "env": { "CLAUDE_HUD_DISABLE": "tokens,cost,limits,git" } }
 ```
+
+## Live updates
+
+The status line re-renders after every assistant turn. To make it also tick
+*between* turns — a live session timer, fresh git state — add `refreshInterval`
+to the `statusLine` block in `~/.claude/settings.json`:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "node \"/ABSOLUTE/PATH/TO/claude-hud/bin/statusline.js\"",
+  "refreshInterval": 2
+}
+```
+
+`refreshInterval` is in seconds (minimum 1); the command re-runs that often
+even while idle. `2` is a good balance — `1` is snappier but spawns a process
+every second.
+
+What it does and doesn't do: the model, context %, token, cost and usage
+figures are snapshots Claude Code updates **once per assistant turn** — there
+is no sub-turn data, so `refreshInterval` cannot make those change between
+turns. What it *does* keep live is the session timer and the git segment.
 
 ## Preview / test
 

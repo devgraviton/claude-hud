@@ -15,6 +15,9 @@
  */
 
 const { execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const DISABLED = new Set(
   (process.env.CLAUDE_HUD_DISABLE || '')
@@ -52,11 +55,15 @@ function fmtNum(n) {
 }
 
 function fmtDuration(ms) {
-  const s = Math.floor((Number(ms) || 0) / 1000);
-  if (s < 60) return s + 's';
+  let s = Math.floor((Number(ms) || 0) / 1000);
+  const h = Math.floor(s / 3600);
+  s -= h * 3600;
   const m = Math.floor(s / 60);
-  if (m < 60) return m + 'm';
-  return Math.floor(m / 60) + 'h' + (m % 60) + 'm';
+  s -= m * 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (h > 0) return h + 'h' + pad(m) + 'm' + pad(s) + 's';
+  if (m > 0) return m + 'm' + pad(s) + 's';
+  return s + 's';
 }
 
 function fmtCost(usd) {
@@ -65,10 +72,55 @@ function fmtCost(usd) {
   return '$' + usd.toFixed(2);
 }
 
+// Time left until a rate-limit window resets (resets_at is a Unix timestamp;
+// accept seconds or milliseconds). Recomputed live on every refresh.
+function fmtCountdown(resetsAt) {
+  if (typeof resetsAt !== 'number' || !isFinite(resetsAt)) return null;
+  const resetMs = resetsAt > 1e12 ? resetsAt : resetsAt * 1000;
+  const s = Math.round((resetMs - Date.now()) / 1000);
+  if (s <= 0) return 'now';
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return d + 'd' + h + 'h';
+  if (h > 0) return h + 'h' + m + 'm';
+  if (m > 0) return m + 'm' + String(s % 60).padStart(2, '0') + 's';
+  return s + 's';
+}
+
 function bar(pct, width) {
   pct = Math.max(0, Math.min(100, Number(pct) || 0));
   const filled = Math.round((pct / 100) * width);
   return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+// ---- live session duration ----------------------------------------------
+
+// cost.total_duration_ms is a per-turn snapshot. To make the session timer
+// tick on every refresh, anchor a start timestamp (per session_id) in a temp
+// file and measure from it — re-anchoring whenever Claude Code reports a new
+// duration, so it stays accurate across turns.
+function liveDurationMs(data) {
+  const snapshot = data.cost && data.cost.total_duration_ms;
+  if (typeof snapshot !== 'number') return null;
+  const sid = data.session_id;
+  if (!sid) return snapshot;
+  const file = path.join(
+    os.tmpdir(),
+    'claude-hud-' + String(sid).replace(/[^\w.-]/g, '_') + '.json'
+  );
+  let state = null;
+  try {
+    state = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (_) {}
+  if (!state || state.snapshot !== snapshot) {
+    // new turn (or first run): re-anchor to Claude Code's reported duration
+    state = { snapshot, start: Date.now() - snapshot };
+    try {
+      fs.writeFileSync(file, JSON.stringify(state));
+    } catch (_) {}
+  }
+  return Date.now() - state.start;
 }
 
 // ---- git -----------------------------------------------------------------
@@ -168,8 +220,9 @@ function build(data) {
   // cost + session stats
   if (data.cost && !DISABLED.has('cost')) {
     const parts = [paint(COL.cost, fmtCost(data.cost.total_cost_usd))];
-    if (data.cost.total_duration_ms) {
-      parts.push(paint(COL.dim, fmtDuration(data.cost.total_duration_ms)));
+    const durMs = liveDurationMs(data);
+    if (durMs != null) {
+      parts.push(paint(COL.dim, fmtDuration(durMs)));
     }
     const add = data.cost.total_lines_added || 0;
     const del = data.cost.total_lines_removed || 0;
@@ -187,13 +240,15 @@ function build(data) {
       if (!w || w.used_percentage == null) return;
       const p = Math.round(w.used_percentage);
       const col = pctColor(p);
-      seg.push(
+      let out =
         paint(COL.dim, label) +
-          ' ' +
-          paint(col, '▕' + bar(p, 8) + '▏') +
-          ' ' +
-          paint(col, p + '%')
-      );
+        ' ' +
+        paint(col, '▕' + bar(p, 8) + '▏') +
+        ' ' +
+        paint(col, p + '%');
+      const cd = fmtCountdown(w.resets_at);
+      if (cd) out += ' ' + paint(COL.dim, '↺' + cd);
+      seg.push(out);
     };
     win('session', rl.five_hour);
     win('weekly', rl.seven_day);
@@ -247,8 +302,14 @@ function demoData() {
       total_lines_removed: 23,
     },
     rate_limits: {
-      five_hour: { used_percentage: 23.5, resets_at: 0 },
-      seven_day: { used_percentage: 41.2, resets_at: 0 },
+      five_hour: {
+        used_percentage: 23.5,
+        resets_at: Math.floor(Date.now() / 1000) + 3 * 3600 + 12 * 60,
+      },
+      seven_day: {
+        used_percentage: 41.2,
+        resets_at: Math.floor(Date.now() / 1000) + 4 * 86400 + 3 * 3600,
+      },
     },
     pr: { number: 1234, review_state: 'pending' },
   };
