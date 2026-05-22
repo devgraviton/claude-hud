@@ -5,11 +5,12 @@
  * claude-hud — a heads-up display (live status line) for Claude Code.
  *
  * Claude Code pipes a JSON status payload to this script's stdin on every
- * conversation update; we print one compact, colorized line back.
+ * conversation update; we print a compact, colorized status line back.
  *
  * Override behavior via environment variables (see README.md):
  *   CLAUDE_HUD_DISABLE=context,tokens,cost,limits,git  hide one or more segments
- *   CLAUDE_HUD_WIDTH=120   wrap segments to this many columns (default: auto)
+ *   CLAUDE_HUD_WIDTH=160      wrap segments to this many columns (default: auto)
+ *   CLAUDE_HUD_SHOW_EMAIL=1   show the logged-in Claude Code account email
  *   CLAUDE_HUD_COLOR=0  (or NO_COLOR=1)                 disable ANSI color
  *
  * Run `node bin/statusline.js --demo` to preview with sample data.
@@ -27,6 +28,9 @@ const DISABLED = new Set(
     .filter(Boolean)
 );
 const USE_COLOR = !process.env.NO_COLOR && process.env.CLAUDE_HUD_COLOR !== '0';
+const SHOW_EMAIL =
+  !!process.env.CLAUDE_HUD_SHOW_EMAIL &&
+  process.env.CLAUDE_HUD_SHOW_EMAIL !== '0';
 
 // ---- formatting helpers --------------------------------------------------
 
@@ -73,22 +77,6 @@ function fmtCost(usd) {
   return '$' + usd.toFixed(2);
 }
 
-// Time left until a rate-limit window resets (resets_at is a Unix timestamp;
-// accept seconds or milliseconds). Recomputed live on every refresh.
-function fmtCountdown(resetsAt) {
-  if (typeof resetsAt !== 'number' || !isFinite(resetsAt)) return null;
-  const resetMs = resetsAt > 1e12 ? resetsAt : resetsAt * 1000;
-  const s = Math.round((resetMs - Date.now()) / 1000);
-  if (s <= 0) return 'now';
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (d > 0) return d + 'd' + h + 'h';
-  if (h > 0) return h + 'h' + m + 'm';
-  if (m > 0) return m + 'm' + String(s % 60).padStart(2, '0') + 's';
-  return s + 's';
-}
-
 function bar(pct, width) {
   pct = Math.max(0, Math.min(100, Number(pct) || 0));
   const filled = Math.round((pct / 100) * width);
@@ -122,6 +110,21 @@ function liveDurationMs(data) {
     } catch (_) {}
   }
   return Date.now() - state.start;
+}
+
+// ---- account email ------------------------------------------------------
+
+// The logged-in Claude Code account email, read from the user's local
+// ~/.claude.json. Shown only when CLAUDE_HUD_SHOW_EMAIL is set. The address is
+// read live from each machine — it is never stored in this repo.
+function accountEmail() {
+  try {
+    const raw = fs.readFileSync(path.join(os.homedir(), '.claude.json'), 'utf8');
+    const m = raw.match(/"emailAddress"\s*:\s*"([^"@]+@[^"]+)"/);
+    return m ? m[1] : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 // ---- git -----------------------------------------------------------------
@@ -176,20 +179,41 @@ function gitSegment(data) {
 
 // ---- line builder --------------------------------------------------------
 
+// Segment order: model · session · weekly · ctx · cost · tokens · git · email.
 function build(data) {
   const seg = [];
 
-  // model (always shown)
+  // model (always shown) — "Opus 4.7 (1M context)" is shortened to "(1M)"
   const model = data.model || {};
-  let modelStr = paint(COL.model, model.display_name || model.id || 'Claude');
+  const name = (model.display_name || model.id || 'Claude').replace(
+    ' context)',
+    ')'
+  );
+  let modelStr = paint(COL.model, name);
   if (data.effort && data.effort.level) {
     modelStr += ' ' + paint(COL.dim, data.effort.level);
   }
   seg.push(modelStr);
 
+  // session (5-hour) + weekly (7-day) usage windows, each as a percent bar
+  // (present only for Claude.ai Pro/Max subscribers)
+  if (data.rate_limits && !DISABLED.has('limits')) {
+    const rl = data.rate_limits;
+    const win = (label, w) => {
+      if (!w || w.used_percentage == null) return;
+      const p = Math.round(w.used_percentage);
+      const col = pctColor(p);
+      seg.push(
+        paint(COL.dim, label) + paint(col, '▕' + bar(p, 8) + '▏' + p + '%')
+      );
+    };
+    win('session', rl.five_hour);
+    win('weekly', rl.seven_day);
+  }
+
   const cw = data.context_window || null;
 
-  // context-window usage: percentage as text only (no meter)
+  // context-window usage: percentage as text only
   if (cw && !DISABLED.has('context')) {
     let pct = cw.used_percentage;
     if (pct == null && cw.context_window_size) {
@@ -201,24 +225,7 @@ function build(data) {
     );
   }
 
-  // token breakdown for the most recent response + cache hit rate
-  const cu = cw && cw.current_usage;
-  if (cu && !DISABLED.has('tokens')) {
-    const totalIn =
-      (cu.input_tokens || 0) +
-      (cu.cache_creation_input_tokens || 0) +
-      (cu.cache_read_input_tokens || 0);
-    let t = paint(COL.dim, 'out ' + fmtNum(cu.output_tokens || 0));
-    if (totalIn > 0) {
-      const hit = Math.round(
-        ((cu.cache_read_input_tokens || 0) / totalIn) * 100
-      );
-      t += ' ' + paint(hit >= 70 ? COL.green : COL.dim, 'cache ' + hit + '%');
-    }
-    seg.push(t);
-  }
-
-  // cost + session stats
+  // cost + live session timer + lines changed
   if (data.cost && !DISABLED.has('cost')) {
     const parts = [paint(COL.cost, fmtCost(data.cost.total_cost_usd))];
     const durMs = liveDurationMs(data);
@@ -233,32 +240,31 @@ function build(data) {
     seg.push(parts.join(' '));
   }
 
-  // session (5-hour) + weekly (7-day) usage windows, each as a percent bar
-  // (present only for Claude.ai Pro/Max subscribers)
-  if (data.rate_limits && !DISABLED.has('limits')) {
-    const rl = data.rate_limits;
-    const win = (label, w) => {
-      if (!w || w.used_percentage == null) return;
-      const p = Math.round(w.used_percentage);
-      const col = pctColor(p);
-      let out =
-        paint(COL.dim, label) +
-        ' ' +
-        paint(col, '▕' + bar(p, 8) + '▏') +
-        ' ' +
-        paint(col, p + '%');
-      const cd = fmtCountdown(w.resets_at);
-      if (cd) out += ' ' + paint(COL.dim, '↺' + cd);
-      seg.push(out);
-    };
-    win('session', rl.five_hour);
-    win('weekly', rl.seven_day);
+  // token breakdown for the most recent response + cache hit rate
+  const cu = cw && cw.current_usage;
+  if (cu && !DISABLED.has('tokens')) {
+    const totalIn =
+      (cu.input_tokens || 0) +
+      (cu.cache_creation_input_tokens || 0) +
+      (cu.cache_read_input_tokens || 0);
+    let t = paint(COL.dim, 'out ' + fmtNum(cu.output_tokens || 0));
+    if (totalIn > 0) {
+      const hit = Math.round(((cu.cache_read_input_tokens || 0) / totalIn) * 100);
+      t += ' ' + paint(hit >= 70 ? COL.green : COL.dim, 'cache ' + hit + '%');
+    }
+    seg.push(t);
   }
 
-  // git branch + open PR
+  // git branch + open PR — hidden in the default layout via CLAUDE_HUD_DISABLE=git
   if (!DISABLED.has('git')) {
     const g = gitSegment(data);
     if (g) seg.push(g);
+  }
+
+  // logged-in Claude Code account email — opt-in (it appears in screenshots)
+  if (SHOW_EMAIL) {
+    const email = accountEmail();
+    if (email) seg.push(paint(COL.dim, email));
   }
 
   return layout(seg);
@@ -272,8 +278,8 @@ function visibleWidth(str) {
 }
 
 function layout(seg) {
-  const sep = '  ' + paint(COL.dim, '·') + '  ';
-  const SEP_W = 5; // visible width of the separator: 2 spaces + dot + 2 spaces
+  const sep = ' ' + paint(COL.dim, '|') + ' ';
+  const SEP_W = 3; // visible width of the separator: space + bar + space
   let width =
     parseInt(process.env.CLAUDE_HUD_WIDTH, 10) ||
     process.stdout.columns ||
@@ -314,37 +320,37 @@ function emit(data) {
 
 function demoData() {
   return {
-    model: { id: 'claude-opus-4-7', display_name: 'Opus 4.7' },
-    effort: { level: 'high' },
+    model: { id: 'claude-opus-4-7', display_name: 'Opus 4.7 (1M context)' },
+    effort: { level: 'xhigh' },
     cwd: process.cwd(),
     workspace: { current_dir: process.cwd() },
     context_window: {
-      total_input_tokens: 84000,
+      total_input_tokens: 62000,
       total_output_tokens: 1200,
       context_window_size: 200000,
-      used_percentage: 42,
-      remaining_percentage: 58,
+      used_percentage: 31,
+      remaining_percentage: 69,
       current_usage: {
-        input_tokens: 9000,
+        input_tokens: 0,
         output_tokens: 1200,
-        cache_creation_input_tokens: 5000,
-        cache_read_input_tokens: 70000,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 220000,
       },
     },
     cost: {
-      total_cost_usd: 0.34,
-      total_duration_ms: 740000,
-      total_lines_added: 156,
-      total_lines_removed: 23,
+      total_cost_usd: 14.98,
+      total_duration_ms: 26738000,
+      total_lines_added: 759,
+      total_lines_removed: 90,
     },
     rate_limits: {
       five_hour: {
-        used_percentage: 23.5,
-        resets_at: Math.floor(Date.now() / 1000) + 3 * 3600 + 12 * 60,
+        used_percentage: 1,
+        resets_at: Math.floor(Date.now() / 1000) + 4 * 3600 + 43 * 60,
       },
       seven_day: {
-        used_percentage: 41.2,
-        resets_at: Math.floor(Date.now() / 1000) + 4 * 86400 + 3 * 3600,
+        used_percentage: 64,
+        resets_at: Math.floor(Date.now() / 1000) + 4 * 86400 + 14 * 3600,
       },
     },
     pr: { number: 1234, review_state: 'pending' },
