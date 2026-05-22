@@ -1,0 +1,16 @@
+{
+  "name": "claude-hud",
+  "owner": {
+    "name": "physicsfamily"
+  },
+  "description": "claude-hud — a heads-up display status line for Claude Code.",
+  "plugins": [
+    {
+      "name": "claude-hud",
+      "source": "./",
+      "description": "Live status line: model, real-time context/token usage, session cost, rate-limit windows, and git/PR info.",
+      "category": "monitoring",
+      "tags": ["statusline", "hud", "tokens", "context", "cost", "monitoring"]
+    }
+  ]
+}

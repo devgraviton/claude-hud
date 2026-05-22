@@ -1,0 +1,270 @@
+#!/usr/bin/env node
+'use strict';
+
+/*
+ * claude-hud — a heads-up display (live status line) for Claude Code.
+ *
+ * Claude Code pipes a JSON status payload to this script's stdin on every
+ * conversation update; we print one compact, colorized line back.
+ *
+ * Override behavior via environment variables (see README.md):
+ *   CLAUDE_HUD_DISABLE=context,tokens,cost,limits,git  hide one or more segments
+ *   CLAUDE_HUD_COLOR=0  (or NO_COLOR=1)                 disable ANSI color
+ *
+ * Run `node bin/statusline.js --demo` to preview with sample data.
+ */
+
+const { execSync } = require('child_process');
+
+const DISABLED = new Set(
+  (process.env.CLAUDE_HUD_DISABLE || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+);
+const USE_COLOR = !process.env.NO_COLOR && process.env.CLAUDE_HUD_COLOR !== '0';
+
+// ---- formatting helpers --------------------------------------------------
+
+const COL = {
+  model: '1;38;5;80', // bold cyan
+  dim: '38;5;244', // gray
+  green: '38;5;114',
+  yellow: '38;5;179',
+  red: '38;5;203',
+  cost: '38;5;179',
+  git: '38;5;176',
+};
+
+function paint(code, str) {
+  return USE_COLOR ? `\x1b[${code}m${str}\x1b[0m` : String(str);
+}
+
+function pctColor(p) {
+  return p < 50 ? COL.green : p < 80 ? COL.yellow : COL.red;
+}
+
+function fmtNum(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return String((n / 1e6).toFixed(1)).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return String((n / 1e3).toFixed(1)).replace(/\.0$/, '') + 'k';
+  return String(Math.round(n));
+}
+
+function fmtDuration(ms) {
+  const s = Math.floor((Number(ms) || 0) / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  return Math.floor(m / 60) + 'h' + (m % 60) + 'm';
+}
+
+function fmtCost(usd) {
+  usd = Number(usd) || 0;
+  if (usd > 0 && usd < 0.01) return '<$0.01';
+  return '$' + usd.toFixed(2);
+}
+
+function bar(pct, width) {
+  pct = Math.max(0, Math.min(100, Number(pct) || 0));
+  const filled = Math.round((pct / 100) * width);
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+// ---- git -----------------------------------------------------------------
+
+function git(args, cwd) {
+  return execSync('git ' + args, {
+    cwd,
+    timeout: 800,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+    .toString()
+    .trim();
+}
+
+function gitSegment(data) {
+  const cwd =
+    (data.workspace && data.workspace.current_dir) || data.cwd || process.cwd();
+
+  let branch;
+  try {
+    branch = git('rev-parse --abbrev-ref HEAD', cwd);
+  } catch (_) {
+    return ''; // not a git repo (or git unavailable)
+  }
+  if (!branch) return '';
+  if (branch === 'HEAD') {
+    // detached HEAD — fall back to the short commit hash
+    try {
+      branch = git('rev-parse --short HEAD', cwd) + '…';
+    } catch (_) {}
+  }
+
+  let dirty = false;
+  try {
+    dirty = git('status --porcelain', cwd).length > 0;
+  } catch (_) {}
+
+  let out = paint(COL.git, '⎎ ' + branch + (dirty ? '*' : ''));
+
+  const pr = data.pr;
+  if (pr && pr.number) {
+    const stateCol =
+      {
+        approved: COL.green,
+        changes_requested: COL.red,
+        pending: COL.yellow,
+      }[pr.review_state] || COL.dim;
+    out += ' ' + paint(stateCol, 'PR#' + pr.number);
+  }
+  return out;
+}
+
+// ---- line builder --------------------------------------------------------
+
+function build(data) {
+  const seg = [];
+
+  // model (always shown)
+  const model = data.model || {};
+  let modelStr = paint(COL.model, model.display_name || model.id || 'Claude');
+  if (data.effort && data.effort.level) {
+    modelStr += ' ' + paint(COL.dim, data.effort.level);
+  }
+  seg.push(modelStr);
+
+  const cw = data.context_window || null;
+
+  // context-window usage: percentage as text only (no meter)
+  if (cw && !DISABLED.has('context')) {
+    let pct = cw.used_percentage;
+    if (pct == null && cw.context_window_size) {
+      pct = (cw.total_input_tokens / cw.context_window_size) * 100;
+    }
+    pct = Number(pct) || 0;
+    seg.push(
+      paint(COL.dim, 'ctx') + ' ' + paint(pctColor(pct), Math.round(pct) + '%')
+    );
+  }
+
+  // token breakdown for the most recent response + cache hit rate
+  const cu = cw && cw.current_usage;
+  if (cu && !DISABLED.has('tokens')) {
+    const totalIn =
+      (cu.input_tokens || 0) +
+      (cu.cache_creation_input_tokens || 0) +
+      (cu.cache_read_input_tokens || 0);
+    let t = paint(COL.dim, 'out ' + fmtNum(cu.output_tokens || 0));
+    if (totalIn > 0) {
+      const hit = Math.round(
+        ((cu.cache_read_input_tokens || 0) / totalIn) * 100
+      );
+      t += ' ' + paint(hit >= 70 ? COL.green : COL.dim, 'cache ' + hit + '%');
+    }
+    seg.push(t);
+  }
+
+  // cost + session stats
+  if (data.cost && !DISABLED.has('cost')) {
+    const parts = [paint(COL.cost, fmtCost(data.cost.total_cost_usd))];
+    if (data.cost.total_duration_ms) {
+      parts.push(paint(COL.dim, fmtDuration(data.cost.total_duration_ms)));
+    }
+    const add = data.cost.total_lines_added || 0;
+    const del = data.cost.total_lines_removed || 0;
+    if (add || del) {
+      parts.push(paint(COL.green, '+' + add) + paint(COL.red, '-' + del));
+    }
+    seg.push(parts.join(' '));
+  }
+
+  // session (5-hour) + weekly (7-day) usage windows, each as a percent bar
+  // (present only for Claude.ai Pro/Max subscribers)
+  if (data.rate_limits && !DISABLED.has('limits')) {
+    const rl = data.rate_limits;
+    const win = (label, w) => {
+      if (!w || w.used_percentage == null) return;
+      const p = Math.round(w.used_percentage);
+      const col = pctColor(p);
+      seg.push(
+        paint(COL.dim, label) +
+          ' ' +
+          paint(col, '▕' + bar(p, 8) + '▏') +
+          ' ' +
+          paint(col, p + '%')
+      );
+    };
+    win('session', rl.five_hour);
+    win('weekly', rl.seven_day);
+  }
+
+  // git branch + open PR
+  if (!DISABLED.has('git')) {
+    const g = gitSegment(data);
+    if (g) seg.push(g);
+  }
+
+  const sep = '  ' + paint(COL.dim, '·') + '  ';
+  return seg.join(sep);
+}
+
+// ---- entry ---------------------------------------------------------------
+
+function emit(data) {
+  let line;
+  try {
+    line = build(data);
+  } catch (e) {
+    line = paint(COL.dim, 'claude-hud: ' + (e && e.message));
+  }
+  process.stdout.write(line);
+}
+
+function demoData() {
+  return {
+    model: { id: 'claude-opus-4-7', display_name: 'Opus 4.7' },
+    effort: { level: 'high' },
+    cwd: process.cwd(),
+    workspace: { current_dir: process.cwd() },
+    context_window: {
+      total_input_tokens: 84000,
+      total_output_tokens: 1200,
+      context_window_size: 200000,
+      used_percentage: 42,
+      remaining_percentage: 58,
+      current_usage: {
+        input_tokens: 9000,
+        output_tokens: 1200,
+        cache_creation_input_tokens: 5000,
+        cache_read_input_tokens: 70000,
+      },
+    },
+    cost: {
+      total_cost_usd: 0.34,
+      total_duration_ms: 740000,
+      total_lines_added: 156,
+      total_lines_removed: 23,
+    },
+    rate_limits: {
+      five_hour: { used_percentage: 23.5, resets_at: 0 },
+      seven_day: { used_percentage: 41.2, resets_at: 0 },
+    },
+    pr: { number: 1234, review_state: 'pending' },
+  };
+}
+
+if (process.argv.includes('--demo')) {
+  emit(demoData());
+} else {
+  let input = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (d) => (input += d));
+  process.stdin.on('end', () => {
+    let data = {};
+    try {
+      data = JSON.parse(input || '{}');
+    } catch (_) {}
+    emit(data);
+  });
+}

@@ -1,0 +1,10 @@
+{
+  "name": "claude-hud",
+  "description": "A heads-up display for Claude Code — a live status line pinned to the bottom of the terminal showing the current model, real-time context-window and token usage, session cost, rate-limit windows, and git/PR status.",
+  "version": "0.1.0",
+  "author": {
+    "name": "physicsfamily"
+  },
+  "license": "MIT",
+  "keywords": ["statusline", "hud", "tokens", "context", "cost", "monitoring"]
+}
