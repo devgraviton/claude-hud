@@ -1,0 +1,22 @@
+{
+  "name": "claude-hud",
+  "version": "0.1.0",
+  "description": "A heads-up display status line for Claude Code — live model, usage, context, cost and account readout.",
+  "license": "MIT",
+  "author": "physicsfamily",
+  "homepage": "https://github.com/devgraviton/claude-hud#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devgraviton/claude-hud.git"
+  },
+  "bugs": {
+    "url": "https://github.com/devgraviton/claude-hud/issues"
+  },
+  "keywords": ["claude-code", "claude-code-plugin", "statusline", "cli"],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

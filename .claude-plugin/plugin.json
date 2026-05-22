@@ -6,5 +6,7 @@
     "name": "physicsfamily"
   },
   "license": "MIT",
+  "homepage": "https://github.com/devgraviton/claude-hud",
+  "repository": "https://github.com/devgraviton/claude-hud",
   "keywords": ["statusline", "hud", "tokens", "context", "cost", "monitoring"]
 }

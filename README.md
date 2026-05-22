@@ -1,5 +1,9 @@
 # claude-hud
 
+[![CI](https://github.com/devgraviton/claude-hud/actions/workflows/ci.yml/badge.svg)](https://github.com/devgraviton/claude-hud/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](package.json)
+
 A heads-up display for Claude Code — a live status line pinned to the bottom of
 the terminal. It refreshes every turn (and between turns) and shows, on one
 line:
@@ -108,11 +112,29 @@ claude-hud/
 ├── .claude-plugin/
 │   ├── marketplace.json    # marketplace manifest
 │   └── plugin.json         # plugin manifest
+├── .github/workflows/
+│   └── ci.yml              # GitHub Actions — runs tests on every push and PR
 ├── bin/
 │   └── statusline.js       # the status line script
+├── test/
+│   └── statusline.test.js  # test suite (Node's built-in test runner)
+├── package.json
 ├── LICENSE
 └── README.md
 ```
+
+## Development
+
+claude-hud is a single, dependency-free Node script. The tests use Node's
+built-in test runner — nothing to install:
+
+```sh
+npm test          # or: node --test
+```
+
+Every push and pull request runs the suite on Node 20 and 22 via GitHub Actions
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The **CI** badge at the
+top of this file shows whether the latest run passed.
 
 ## License
 
