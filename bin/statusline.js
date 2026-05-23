@@ -42,6 +42,7 @@ const COL = {
   red: '38;5;203',
   cost: '38;5;179',
   git: '38;5;176',
+  project: '1;38;5;215', // bold orange
 };
 
 function paint(code, str) {
@@ -179,9 +180,19 @@ function gitSegment(data) {
 
 // ---- line builder --------------------------------------------------------
 
-// Segment order: model · session · weekly · ctx · cost · tokens · git · email.
+// Segment order: project · model · session · weekly · ctx · cost · tokens · git · email.
 function build(data) {
   const seg = [];
+
+  // project — basename of the current working directory
+  if (!DISABLED.has('project')) {
+    const cwd =
+      (data.workspace && data.workspace.current_dir) ||
+      data.cwd ||
+      process.cwd();
+    const name = path.basename(cwd);
+    if (name) seg.push(paint(COL.project, name));
+  }
 
   // model (always shown) — "Opus 4.7 (1M context)" is shortened to "(1M)"
   const model = data.model || {};
