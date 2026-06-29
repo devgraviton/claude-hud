@@ -23,6 +23,7 @@ function run({ args = [], input = '', env = {} } = {}) {
       ...process.env,
       CLAUDE_HUD_COLOR: '0',
       CLAUDE_HUD_DISABLE: 'git',
+      CLAUDE_HUD_SHOW_EMAIL: '', // neutralize ambient value for determinism
       ...env,
     },
   });
@@ -110,9 +111,18 @@ test('output wraps so that no row exceeds CLAUDE_HUD_WIDTH', () => {
   }
 });
 
-test('a wide CLAUDE_HUD_WIDTH keeps everything on a single line', () => {
+test('a wide CLAUDE_HUD_WIDTH yields two rows (stats + context)', () => {
   const out = run({ args: ['--demo'], env: { CLAUDE_HUD_WIDTH: '400' } });
+  assert.equal(out.split('\n').length, 2);
+});
+
+test('row 2 is omitted entirely when it has no segments', () => {
+  const out = run({
+    input: json({ model: { display_name: 'Opus' } }),
+    env: { CLAUDE_HUD_DISABLE: 'git,project', CLAUDE_HUD_WIDTH: '400' },
+  });
   assert.equal(out.split('\n').length, 1);
+  assert.match(out, /Opus/);
 });
 
 test('CLAUDE_HUD_SHOW_EMAIL does not crash when no account file exists', () => {

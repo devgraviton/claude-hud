@@ -180,21 +180,13 @@ function gitSegment(data) {
 
 // ---- line builder --------------------------------------------------------
 
-// Segment order: project · model · session · weekly · ctx · cost · tokens · git · email.
+// Row 1 (stats): model+effort · limits · ctx · cost · tokens
+// Row 2 (context): project · git · email   (title/repo added in later tasks)
 function build(data) {
-  const seg = [];
+  const stats = [];
+  const context = [];
 
-  // project — basename of the current working directory
-  if (!DISABLED.has('project')) {
-    const cwd =
-      (data.workspace && data.workspace.current_dir) ||
-      data.cwd ||
-      process.cwd();
-    const name = path.basename(cwd);
-    if (name) seg.push(paint(COL.project, name));
-  }
-
-  // model (always shown) — "Opus 4.7 (1M context)" is shortened to "(1M)"
+  // model (always shown) — "Opus 4.7 (1M context)" shortened to "(1M)"
   const model = data.model || {};
   const name = (model.display_name || model.id || 'Claude').replace(
     ' context)',
@@ -204,17 +196,16 @@ function build(data) {
   if (data.effort && data.effort.level) {
     modelStr += ' ' + paint(COL.dim, data.effort.level);
   }
-  seg.push(modelStr);
+  stats.push(modelStr);
 
-  // session (5-hour) + weekly (7-day) usage windows, each as a percent bar
-  // (present only for Claude.ai Pro/Max subscribers)
+  // session (5-hour) + weekly (7-day) usage windows
   if (data.rate_limits && !DISABLED.has('limits')) {
     const rl = data.rate_limits;
     const win = (label, w) => {
       if (!w || w.used_percentage == null) return;
       const p = Math.round(w.used_percentage);
       const col = pctColor(p);
-      seg.push(
+      stats.push(
         paint(COL.dim, label) + paint(col, '▕' + bar(p, 8) + '▏' + p + '%')
       );
     };
@@ -224,14 +215,14 @@ function build(data) {
 
   const cw = data.context_window || null;
 
-  // context-window usage: percentage as text only
+  // context-window usage
   if (cw && !DISABLED.has('context')) {
     let pct = cw.used_percentage;
     if (pct == null && cw.context_window_size) {
       pct = (cw.total_input_tokens / cw.context_window_size) * 100;
     }
     pct = Number(pct) || 0;
-    seg.push(
+    stats.push(
       paint(COL.dim, 'ctx') + ' ' + paint(pctColor(pct), Math.round(pct) + '%')
     );
   }
@@ -240,15 +231,13 @@ function build(data) {
   if (data.cost && !DISABLED.has('cost')) {
     const parts = [paint(COL.cost, fmtCost(data.cost.total_cost_usd))];
     const durMs = liveDurationMs(data);
-    if (durMs != null) {
-      parts.push(paint(COL.dim, fmtDuration(durMs)));
-    }
+    if (durMs != null) parts.push(paint(COL.dim, fmtDuration(durMs)));
     const add = data.cost.total_lines_added || 0;
     const del = data.cost.total_lines_removed || 0;
     if (add || del) {
       parts.push(paint(COL.green, '+' + add) + paint(COL.red, '-' + del));
     }
-    seg.push(parts.join(' '));
+    stats.push(parts.join(' '));
   }
 
   // token breakdown for the most recent response + cache hit rate
@@ -260,44 +249,65 @@ function build(data) {
       (cu.cache_read_input_tokens || 0);
     let t = paint(COL.dim, 'out ' + fmtNum(cu.output_tokens || 0));
     if (totalIn > 0) {
-      const hit = Math.round(((cu.cache_read_input_tokens || 0) / totalIn) * 100);
+      const hit = Math.round(
+        ((cu.cache_read_input_tokens || 0) / totalIn) * 100
+      );
       t += ' ' + paint(hit >= 70 ? COL.green : COL.dim, 'cache ' + hit + '%');
     }
-    seg.push(t);
+    stats.push(t);
   }
 
-  // git branch + open PR — hidden in the default layout via CLAUDE_HUD_DISABLE=git
+  // ---- row 2: context ----
+
+  // project — basename of the current working directory
+  if (!DISABLED.has('project')) {
+    const cwd =
+      (data.workspace && data.workspace.current_dir) ||
+      data.cwd ||
+      process.cwd();
+    const pname = path.basename(cwd);
+    if (pname) context.push(paint(COL.project, pname));
+  }
+
+  // git branch + open PR (PR moves to the repo segment in a later task)
   if (!DISABLED.has('git')) {
     const g = gitSegment(data);
-    if (g) seg.push(g);
+    if (g) context.push(g);
   }
 
-  // logged-in Claude Code account email — opt-in (it appears in screenshots)
+  // logged-in Claude Code account email — opt-in
   if (SHOW_EMAIL) {
     const email = accountEmail();
-    if (email) seg.push(paint(COL.dim, email));
+    if (email) context.push(paint(COL.dim, email));
   }
 
-  return layout(seg);
+  return layout([stats, context]);
 }
 
 // ---- layout: pack segments into rows that fit the terminal width ---------
 
 function visibleWidth(str) {
-  // measured width ignores ANSI color codes (they take no display columns)
-  return str.replace(/\x1b\[[0-9;]*m/g, '').length;
+  // measured width ignores ANSI escapes (they take no display columns):
+  // strip OSC 8 hyperlinks first, then SGR color codes.
+  return str
+    .replace(/\x1b\]8;[^;]*;[^\x1b\x07]*(?:\x1b\\|\x07)/g, '')
+    .replace(/\x1b\[[0-9;]*m/g, '').length;
 }
 
-function layout(seg) {
-  const sep = ' ' + paint(COL.dim, '|') + ' ';
-  const SEP_W = 3; // visible width of the separator: space + bar + space
+function effectiveWidth() {
   let width =
     parseInt(process.env.CLAUDE_HUD_WIDTH, 10) ||
     process.stdout.columns ||
     parseInt(process.env.COLUMNS, 10) ||
     80;
   if (!(width > 20)) width = 80;
+  return width;
+}
 
+// pack one group's segments into rows that fit the width
+function wrapRows(seg, width) {
+  const sep = ' ' + paint(COL.dim, '|') + ' ';
+  const SEP_W = 3; // visible width of the separator: space + bar + space
   const rows = [];
   let row = [];
   let rowWidth = 0;
@@ -314,7 +324,18 @@ function layout(seg) {
     }
   }
   if (row.length) rows.push(row.join(sep));
-  return rows.join('\n');
+  return rows;
+}
+
+// render each group as its own wrap-block; empty groups produce no line
+function layout(groups) {
+  const width = effectiveWidth();
+  const lines = [];
+  for (const seg of groups) {
+    if (!seg || !seg.length) continue;
+    for (const r of wrapRows(seg, width)) lines.push(r);
+  }
+  return lines.join('\n');
 }
 
 // ---- entry ---------------------------------------------------------------
