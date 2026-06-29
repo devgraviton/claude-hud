@@ -217,8 +217,8 @@ function repoSegment(data) {
 
 // ---- line builder --------------------------------------------------------
 
-// Row 1 (stats): model+effort · limits · ctx · cost · tokens
-// Row 2 (context): project · git · email   (title/repo added in later tasks)
+// Row 1 (stats): model+effort+indicators · limits · ctx · cost · tokens
+// Row 2 (context): project · title · git · repo/PR · email
 function build(data) {
   const stats = [];
   const context = [];
