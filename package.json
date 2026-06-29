@@ -1,6 +1,6 @@
 {
   "name": "claude-hud",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A heads-up display status line for Claude Code — live model, usage, context, cost and account readout.",
   "license": "MIT",
   "author": "physicsfamily",
