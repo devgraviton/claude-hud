@@ -219,6 +219,15 @@ function build(data) {
   if (data.effort && data.effort.level) {
     modelStr += ' ' + paint(COL.dim, data.effort.level);
   }
+  const flags = [];
+  if (data.exceeds_200k_tokens === true) flags.push('⚠');
+  if (data.fast_mode === true) flags.push('⚡');
+  if (data.thinking && data.thinking.enabled === true) flags.push('●');
+  const styleName = data.output_style && data.output_style.name;
+  if (flags.length) modelStr += ' ' + paint(COL.yellow, flags.join(''));
+  if (styleName && styleName !== 'default') {
+    modelStr += ' ' + paint(COL.dim, styleName);
+  }
   stats.push(modelStr);
 
   // session (5-hour) + weekly (7-day) usage windows

@@ -63,6 +63,33 @@ test('"(1M context)" in the model name is shortened to "(1M)"', () => {
   assert.doesNotMatch(out, /context/);
 });
 
+test('mode indicators appear only when their flags are set', () => {
+  const out = run({
+    input: json({
+      model: { display_name: 'Opus' },
+      exceeds_200k_tokens: true,
+      fast_mode: true,
+      thinking: { enabled: true },
+      output_style: { name: 'explanatory' },
+    }),
+  });
+  assert.match(out, /⚠/);
+  assert.match(out, /⚡/);
+  assert.match(out, /●/);
+  assert.match(out, /explanatory/);
+});
+
+test('no indicators for a bare model payload', () => {
+  const out = run({
+    input: json({
+      model: { display_name: 'Opus' },
+      output_style: { name: 'default' },
+    }),
+  });
+  assert.doesNotMatch(out, /⚠|⚡|●/);
+  assert.doesNotMatch(out, /default/);
+});
+
 test('session and weekly usage windows render from rate_limits', () => {
   const out = run({
     input: json({
