@@ -78,6 +78,22 @@ function fmtCost(usd) {
   return '$' + usd.toFixed(2);
 }
 
+// compact "time until reset": up to the top two units, dropping a leading zero
+function fmtCountdown(epochSeconds) {
+  const ms = (Number(epochSeconds) || 0) * 1000 - Date.now();
+  if (!(ms > 0)) return '';
+  let s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  s -= d * 86400;
+  const h = Math.floor(s / 3600);
+  s -= h * 3600;
+  const m = Math.floor(s / 60);
+  if (d > 0) return d + 'd' + (h > 0 ? h + 'h' : '');
+  if (h > 0) return h + 'h' + (m > 0 ? m + 'm' : '');
+  if (m > 0) return m + 'm';
+  return '<1m';
+}
+
 function bar(pct, width) {
   pct = Math.max(0, Math.min(100, Number(pct) || 0));
   const filled = Math.round((pct / 100) * width);
@@ -205,9 +221,11 @@ function build(data) {
       if (!w || w.used_percentage == null) return;
       const p = Math.round(w.used_percentage);
       const col = pctColor(p);
-      stats.push(
-        paint(COL.dim, label) + paint(col, '▕' + bar(p, 8) + '▏' + p + '%')
-      );
+      let s =
+        paint(COL.dim, label) + paint(col, '▕' + bar(p, 8) + '▏' + p + '%');
+      const cd = fmtCountdown(w.resets_at);
+      if (cd) s += ' ' + paint(COL.dim, cd);
+      stats.push(s);
     };
     win('session', rl.five_hour);
     win('weekly', rl.seven_day);

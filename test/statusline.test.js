@@ -76,6 +76,27 @@ test('session and weekly usage windows render from rate_limits', () => {
   assert.match(out, /weekly/);
 });
 
+test('a window shows a reset countdown when resets_at is in the future', () => {
+  const resetsAt = Math.floor(Date.now() / 1000) + 3 * 3600 + 30; // ~3h
+  const out = run({
+    input: json({
+      rate_limits: { five_hour: { used_percentage: 45, resets_at: resetsAt } },
+    }),
+  });
+  assert.match(out, /45%\s+3h/);
+});
+
+test('a window shows no countdown when resets_at is in the past', () => {
+  const resetsAt = Math.floor(Date.now() / 1000) - 100;
+  const out = run({
+    input: json({
+      rate_limits: { five_hour: { used_percentage: 45, resets_at: resetsAt } },
+    }),
+  });
+  assert.match(out, /45%/);
+  assert.doesNotMatch(out, /45%\s+\d+[dhm]/);
+});
+
 test('CLAUDE_HUD_DISABLE hides a named segment', () => {
   const input = json({ context_window: { used_percentage: 50 } });
   assert.match(run({ input }), /ctx/);
