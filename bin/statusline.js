@@ -49,6 +49,13 @@ function paint(code, str) {
   return USE_COLOR ? `\x1b[${code}m${str}\x1b[0m` : String(str);
 }
 
+// OSC 8 terminal hyperlink. Suppressed when color is off so that plain mode
+// stays free of escape bytes; falls back to the bare text.
+function hyperlink(text, url) {
+  if (!url || !USE_COLOR) return String(text);
+  return '\x1b]8;;' + url + '\x1b\\' + text + '\x1b]8;;\x1b\\';
+}
+
 function pctColor(p) {
   return p < 50 ? COL.green : p < 80 ? COL.yellow : COL.red;
 }

@@ -137,6 +137,16 @@ test('a wide CLAUDE_HUD_WIDTH yields two rows (stats + context)', () => {
   assert.equal(out.split('\n').length, 2);
 });
 
+test('visibleWidth ignores OSC 8 hyperlink escapes (via wrapping)', () => {
+  // A hyperlinked segment must measure by visible text only, so a wide width
+  // keeps it on its row rather than wrapping on the invisible escape bytes.
+  const out = run({
+    args: ['--demo'],
+    env: { CLAUDE_HUD_COLOR: '1', NO_COLOR: '', CLAUDE_HUD_WIDTH: '400' },
+  });
+  assert.equal(out.split('\n').length, 2);
+});
+
 test('row 2 is omitted entirely when it has no segments', () => {
   const out = run({
     input: json({ model: { display_name: 'Opus' } }),
