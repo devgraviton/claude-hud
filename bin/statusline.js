@@ -191,8 +191,16 @@ function gitSegment(data) {
     dirty = git('status --porcelain', cwd).length > 0;
   } catch (_) {}
 
-  let out = paint(COL.git, '⎎ ' + branch + (dirty ? '*' : ''));
+  return paint(COL.git, '⎎ ' + branch + (dirty ? '*' : ''));
+}
 
+// repo owner/name + open PR, derived from the payload (no git shell-out)
+function repoSegment(data) {
+  const out = [];
+  const repo = data.workspace && data.workspace.repo;
+  if (repo && repo.owner && repo.name) {
+    out.push(paint(COL.dim, repo.owner + '/' + repo.name));
+  }
   const pr = data.pr;
   if (pr && pr.number) {
     const stateCol =
@@ -200,10 +208,11 @@ function gitSegment(data) {
         approved: COL.green,
         changes_requested: COL.red,
         pending: COL.yellow,
+        draft: COL.yellow,
       }[pr.review_state] || COL.dim;
-    out += ' ' + paint(stateCol, 'PR#' + pr.number);
+    out.push(paint(stateCol, hyperlink('PR#' + pr.number + '↗', pr.url)));
   }
-  return out;
+  return out.join(' ');
 }
 
 // ---- line builder --------------------------------------------------------
@@ -313,10 +322,16 @@ function build(data) {
     context.push(paint(COL.dim, '«' + truncate(data.session_name, 28) + '»'));
   }
 
-  // git branch + open PR (PR moves to the repo segment in a later task)
+  // git branch + dirty marker (shells out to git)
   if (!DISABLED.has('git')) {
     const g = gitSegment(data);
     if (g) context.push(g);
+  }
+
+  // repo + PR from the payload (independent of the git shell-out)
+  if (!DISABLED.has('repo')) {
+    const r = repoSegment(data);
+    if (r) context.push(r);
   }
 
   // logged-in Claude Code account email — opt-in

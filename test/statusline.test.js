@@ -111,6 +111,42 @@ test('CLAUDE_HUD_DISABLE=title hides the session title', () => {
   );
 });
 
+test('repo segment shows owner/name from the payload', () => {
+  const out = run({
+    input: json({
+      workspace: { repo: { owner: 'devgraviton', name: 'graviton.dev' } },
+    }),
+  });
+  assert.match(out, /devgraviton\/graviton\.dev/);
+});
+
+test('PR renders with number, arrow, and an OSC 8 link when color is on', () => {
+  const out = run({
+    input: json({
+      pr: {
+        number: 1234,
+        url: 'https://github.com/x/y/pull/1234',
+        review_state: 'approved',
+      },
+    }),
+    env: { CLAUDE_HUD_COLOR: '1', NO_COLOR: '' },
+  });
+  assert.match(out, /PR#1234↗/);
+  assert.ok(out.includes('\x1b]8;;https://github.com/x/y/pull/1234'));
+});
+
+test('CLAUDE_HUD_DISABLE=repo hides repo and PR', () => {
+  const input = json({
+    workspace: { repo: { owner: 'a', name: 'b' } },
+    pr: { number: 7 },
+  });
+  assert.match(run({ input }), /a\/b/);
+  assert.doesNotMatch(
+    run({ input, env: { CLAUDE_HUD_DISABLE: 'git,repo' } }),
+    /a\/b|PR#7/
+  );
+});
+
 test('session and weekly usage windows render from rate_limits', () => {
   const out = run({
     input: json({
