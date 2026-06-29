@@ -90,6 +90,27 @@ test('no indicators for a bare model payload', () => {
   assert.doesNotMatch(out, /default/);
 });
 
+test('session title renders, wrapped in guillemets', () => {
+  const out = run({ input: json({ session_name: 'Fix the login bug' }) });
+  assert.match(out, /«Fix the login bug»/);
+});
+
+test('a long session title is truncated to 28 chars with an ellipsis', () => {
+  const long = 'Handle blocked output with a fallback approach everywhere';
+  const out = run({ input: json({ session_name: long }) });
+  assert.match(out, /«.{1,28}…»/);
+  assert.doesNotMatch(out, /everywhere/);
+});
+
+test('CLAUDE_HUD_DISABLE=title hides the session title', () => {
+  const input = json({ session_name: 'Fix the login bug' });
+  assert.match(run({ input }), /«Fix the login bug»/);
+  assert.doesNotMatch(
+    run({ input, env: { CLAUDE_HUD_DISABLE: 'git,title' } }),
+    /«/
+  );
+});
+
 test('session and weekly usage windows render from rate_limits', () => {
   const out = run({
     input: json({

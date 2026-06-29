@@ -101,6 +101,11 @@ function fmtCountdown(epochSeconds) {
   return '<1m';
 }
 
+function truncate(str, max) {
+  str = String(str);
+  return str.length > max ? str.slice(0, max) + '…' : str;
+}
+
 function bar(pct, width) {
   pct = Math.max(0, Math.min(100, Number(pct) || 0));
   const filled = Math.round((pct / 100) * width);
@@ -301,6 +306,11 @@ function build(data) {
       process.cwd();
     const pname = path.basename(cwd);
     if (pname) context.push(paint(COL.project, pname));
+  }
+
+  // session title (human label for this session)
+  if (data.session_name && !DISABLED.has('title')) {
+    context.push(paint(COL.dim, '«' + truncate(data.session_name, 28) + '»'));
   }
 
   // git branch + open PR (PR moves to the repo segment in a later task)
