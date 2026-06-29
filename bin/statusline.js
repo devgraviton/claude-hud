@@ -411,10 +411,18 @@ function emit(data) {
 
 function demoData() {
   return {
-    model: { id: 'claude-opus-4-7', display_name: 'Opus 4.7 (1M context)' },
+    model: { id: 'claude-opus-4-8', display_name: 'Opus 4.8 (1M context)' },
     effort: { level: 'xhigh' },
+    thinking: { enabled: true },
+    fast_mode: false,
+    exceeds_200k_tokens: false,
+    output_style: { name: 'default' },
+    session_name: 'Add reset countdowns to the HUD',
     cwd: process.cwd(),
-    workspace: { current_dir: process.cwd() },
+    workspace: {
+      current_dir: process.cwd(),
+      repo: { host: 'github.com', owner: 'devgraviton', name: 'claude-hud' },
+    },
     context_window: {
       total_input_tokens: 62000,
       total_output_tokens: 1200,
@@ -444,7 +452,11 @@ function demoData() {
         resets_at: Math.floor(Date.now() / 1000) + 4 * 86400 + 14 * 3600,
       },
     },
-    pr: { number: 1234, review_state: 'pending' },
+    pr: {
+      number: 1234,
+      url: 'https://github.com/devgraviton/claude-hud/pull/1234',
+      review_state: 'pending',
+    },
   };
 }
 

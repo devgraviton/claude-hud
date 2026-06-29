@@ -147,6 +147,14 @@ test('CLAUDE_HUD_DISABLE=repo hides repo and PR', () => {
   );
 });
 
+test('--demo showcases the new segments', () => {
+  const out = run({ args: ['--demo'] }); // color off by default in run()
+  assert.match(out, /«/); // session title
+  assert.match(out, /devgraviton\/claude-hud/); // repo
+  assert.match(out, /PR#/); // PR
+  assert.match(out, /\d+h\d+m|\d+d\d+h/); // a reset countdown
+});
+
 test('session and weekly usage windows render from rate_limits', () => {
   const out = run({
     input: json({

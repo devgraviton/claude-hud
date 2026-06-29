@@ -80,9 +80,15 @@ shell profile):
 | Variable | Effect |
 | --- | --- |
 | `CLAUDE_HUD_WIDTH=160` | wrap segments to this many columns. Claude Code does not expose the real terminal width, so set this to your terminal's width. Default: 80. |
-| `CLAUDE_HUD_DISABLE=git,tokens` | hide segments (comma-separated): `context`, `tokens`, `cost`, `limits`, `git` |
+| `CLAUDE_HUD_DISABLE=git,tokens` | hide segments (comma-separated): `project`, `title` (session name), `limits` (usage bars + reset countdowns), `context`, `cost`, `tokens`, `git` (branch/dirty, shells out), `repo` (`owner/name` + clickable PR, from the payload) |
 | `CLAUDE_HUD_SHOW_EMAIL=1` | show the logged-in account email. Off by default — it appears in screenshots/screen-shares. Read live from your local `~/.claude.json`; never stored in this repo. |
-| `CLAUDE_HUD_COLOR=0` / `NO_COLOR=1` | disable ANSI colors |
+| `CLAUDE_HUD_COLOR=0` / `NO_COLOR=1` | disable ANSI colors (also suppresses clickable links) |
+
+The HUD renders as two rows — **stats** (model, usage bars, context, cost,
+tokens) and **context** (project, session title, git, repo/PR, email) — each
+wrapping to fit `CLAUDE_HUD_WIDTH`. The model segment also shows compact
+indicators when relevant: `⚠` context over 200k, `⚡` fast mode, `●` extended
+thinking, and the output-style name when it isn't `default`.
 
 ## Live updates
 
