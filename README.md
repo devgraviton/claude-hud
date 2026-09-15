@@ -4,153 +4,138 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](package.json)
 
-A heads-up display for Claude Code — a live status line pinned to the bottom of
-the terminal. It refreshes every turn (and between turns) and shows, on one
-line:
+A heads-up display for [Claude Code](https://code.claude.com): a live, two-row
+status line with your model, plan usage, context, cost and repository state.
 
 ```
-Opus 4.7 (1M) xhigh | session▕░░░░░░░░▏1% | weekly▕█████░░░▏64% | fable▕█░░░░░░░▏12% | ctx 31% | $14.98 7h25m38s +759-90 | out 1.2k cache 100% | you@example.com
+Opus 5 (1M) xhigh ● | session▕░░░░░░░░▏4% 4h36m | weekly▕████░░░░▏49% 5d21h | ctx 31% | $14.98 7h25m38s +759-90 | out 1.2k cache 93%
+claude-hud | «Add reset countdowns to the HUD» | ⎎ main* ↑1 | devgraviton/claude-hud PR#1234↗
 ```
 
-| Segment | Shows |
-| --- | --- |
-| **Model** | model name + reasoning effort level (`(1M context)` is shortened to `(1M)`) |
-| **Session** | 5-hour usage window, as a percent bar (Claude.ai Pro/Max accounts only) |
-| **Weekly** | 7-day usage window, as a percent bar (Claude.ai Pro/Max accounts only) |
-| **Fable** | per-model (Fable 5) weekly usage window — shown only when Claude Code emits a per-model window in the payload (see note below) |
-| **Context** | percent of the context window used (green &lt;50%, yellow &lt;80%, red above) |
-| **Cost** | session cost (USD), live session timer, lines added/removed |
-| **Tokens** | output tokens of the last response + cache-hit rate |
-| **Git** | branch (`*` = uncommitted changes) + open PR — shown unless disabled |
-| **Email** | logged-in Claude Code account email — opt-in (see Configure) |
+No runtime dependencies, no network access. Requires Node.js 20 or later;
+`git` is optional.
 
-Data comes from the JSON Claude Code pipes to the status line on stdin; the git
-branch is read with `git`, and the account email from your local
-`~/.claude.json`. Pure Node.js — no dependencies. Requires Claude Code v2.1.132+.
-If the line is wider than the terminal it wraps onto extra rows instead of
-overflowing.
+## Segments
 
-> **Fable / per-model window:** as of Claude Code 2.1.199 the statusline payload
-> exposes only the `five_hour` (session) and `seven_day` (weekly) windows. The
-> per-model weekly windows Claude Code shows in `/usage` — including the "Fable 5
-> limit" — are computed internally but are **not** yet piped to statusline
-> scripts. The **fable** segment reads a per-model window (`model_scoped[]`, or
-> the flat `seven_day_overage_included`) if one is present, so it lights up
-> automatically once Claude Code starts emitting it; until then it stays hidden.
+**Stats row**
 
-## Setup
+| Segment | Shows | Source |
+| --- | --- | --- |
+| Model | Name (`(1M context)` shortened to `(1M)`), effort level, `⚠` over 200k tokens, `⚡` fast mode, `●` extended thinking, non-default output style | `model`, `effort`, `exceeds_200k_tokens`, `fast_mode`, `thinking`, `output_style` |
+| `session` / `weekly` | 5-hour and 7-day plan usage with time to reset (Pro and Max plans) | `rate_limits.five_hour`, `rate_limits.seven_day` |
+| `spend` | Spend limit behind a Claude apps gateway; can exceed 100% | `rate_limits.spend_limit` |
+| `ctx` | Context window used: green below 50%, yellow below 80%, red above | `context_window` |
+| Cost | Session cost in USD, a live session timer, lines added/removed | `cost` |
+| Tokens | Output tokens of the last response and prompt-cache hit rate (`cold` once the cache has expired) | `context_window.current_usage`, `prompt_cache` |
 
-A Claude Code status line is activated by a `statusLine` entry in **your own**
-settings — Claude Code does not let a plugin register one (a plugin's bundled
-`settings.json` only honors the `agent` and `subagentStatusLine` keys). So setup
-is two steps.
+**Context row**
 
-### 1. Get the script
+| Segment | Shows | Source |
+| --- | --- | --- |
+| Project | Name of the working directory | `workspace.current_dir` |
+| `wt` | Worktree name | `worktree.name`, `workspace.git_worktree` |
+| Title | Session name in `«…»` | `session_name` |
+| `@agent` | Agent the session runs as | `agent.name` |
+| Git | Branch, `*` when there are uncommitted changes, `↑`/`↓` ahead/behind | `git status` |
+| Repository | `owner/name` and a clickable `PR#n` (or GitLab `MR!n`), coloured by review state | `workspace.repo`, `pr` |
+| Email | Signed-in account (opt-in) | `~/.claude.json` |
 
-Install the plugin…
+Every field is optional: segments appear when Claude Code provides their data.
+`spend_limit` and `prompt_cache` need Claude Code 2.1.251 or later. The
+`fable` segment is forward-compatible: it renders a per-model weekly window
+only if the payload ever includes one, which the documented payload does not
+today.
+
+## Install
+
+A plugin cannot register the main status line, so installation has two steps.
+
+**1. Get the code.** Clone this repository somewhere stable:
+
+```sh
+git clone https://github.com/devgraviton/claude-hud.git ~/claude-hud
+```
+
+Or install it as a plugin; the files land in a versioned directory under
+`~/.claude/plugins/cache/`, which changes on every update:
 
 ```
 /plugin marketplace add devgraviton/claude-hud
 /plugin install claude-hud@claude-hud
 ```
 
-…which places the script under
-`~/.claude/plugins/cache/claude-hud/claude-hud/<version>/bin/statusline.js` — or
-just clone this repo anywhere.
-
-### 2. Point your status line at it
-
-Run `/statusline` in Claude Code, or add this to `~/.claude/settings.json`:
+**2. Point your status line at it** in `~/.claude/settings.json`:
 
 ```json
 {
   "statusLine": {
     "type": "command",
-    "command": "node \"/ABSOLUTE/PATH/TO/claude-hud/bin/statusline.js\"",
+    "command": "node \"/Users/you/claude-hud/bin/statusline.js\"",
     "refreshInterval": 2
-  },
-  "env": {
-    "CLAUDE_HUD_WIDTH": "160"
   }
 }
 ```
 
-Restart Claude Code — the status line appears at the bottom.
+Use an absolute path. On Windows, write it with forward slashes
+(`C:/Users/you/claude-hud/bin/statusline.js`), because Git Bash strips
+unquoted backslashes. The status line appears at the next update.
 
-> **Path tip:** the plugin cache path contains the version number and changes on
-> every `claude plugin update`. For a path that survives updates, point at a
-> clone of this repo.
+`refreshInterval` (seconds, minimum 1) re-runs the command between Claude Code
+events so the session timer and git segment stay current while the session is
+idle. The model, usage, context and cost figures change only when Claude Code
+sends new data.
 
 ## Configure
 
-Set these environment variables in the `env` block of `settings.json` (or your
-shell profile):
+Set these in the `env` block of `settings.json` or in your shell profile.
 
 | Variable | Effect |
 | --- | --- |
-| `CLAUDE_HUD_WIDTH=160` | wrap segments to this many columns. Claude Code does not expose the real terminal width, so set this to your terminal's width. Default: 80. |
-| `CLAUDE_HUD_DISABLE=git,tokens` | hide segments (comma-separated): `project`, `title` (session name), `limits` (session/weekly/fable usage bars + reset countdowns), `context`, `cost`, `tokens`, `git` (branch/dirty, shells out), `repo` (`owner/name` + clickable PR, from the payload) |
-| `CLAUDE_HUD_SHOW_EMAIL=1` | show the logged-in account email. Off by default — it appears in screenshots/screen-shares. Read live from your local `~/.claude.json`; never stored in this repo. |
-| `CLAUDE_HUD_COLOR=0` / `NO_COLOR=1` | disable ANSI colors (also suppresses clickable links) |
+| `CLAUDE_HUD_WIDTH=160` | Wrap width in columns. Defaults to `COLUMNS`, which Claude Code sets to the terminal width, then 80. |
+| `CLAUDE_HUD_DISABLE=git,tokens` | Hide segments: `limits`, `context`, `cost`, `tokens`, `project`, `worktree`, `title`, `agent`, `git`, `repo`. The model is always shown. |
+| `CLAUDE_HUD_SHOW_EMAIL=1` | Show the signed-in account email. Off by default because it shows up in screenshots and screen shares. Read from `$CLAUDE_CONFIG_DIR/.claude.json` or `~/.claude.json`. |
+| `CLAUDE_HUD_COLOR=0` or `NO_COLOR=1` | Plain text: no colour and no hyperlinks. |
+| `CLAUDE_HUD_DEBUG=1` | Write render errors to stderr. |
 
-The HUD renders as two rows — **stats** (model, usage bars, context, cost,
-tokens) and **context** (project, session title, git, repo/PR, email) — each
-wrapping to fit `CLAUDE_HUD_WIDTH`. The model segment also shows compact
-indicators when relevant: `⚠` context over 200k, `⚡` fast mode, `●` extended
-thinking, and the output-style name when it isn't `default`.
-
-## Live updates
-
-The status line re-renders after every turn. Add `refreshInterval` (seconds,
-minimum 1) to the `statusLine` block to make it tick *between* turns too:
-
-```json
-"statusLine": { "type": "command", "command": "…", "refreshInterval": 2 }
-```
-
-That keeps the **session timer** and the **git** segment live. The model,
-context, token, cost and usage figures are snapshots Claude Code updates once
-per assistant turn — there is no sub-turn data, so `refreshInterval` cannot make
-those change between turns.
-
-## Preview / test
+Preview a configuration without Claude Code:
 
 ```sh
 node bin/statusline.js --demo
-CLAUDE_HUD_WIDTH=160 CLAUDE_HUD_SHOW_EMAIL=1 node bin/statusline.js --demo
+CLAUDE_HUD_WIDTH=100 CLAUDE_HUD_DISABLE=tokens node bin/statusline.js --demo
 ```
 
-## Repo layout
+## Security and privacy
 
-```
-claude-hud/
-├── .claude-plugin/
-│   ├── marketplace.json    # marketplace manifest
-│   └── plugin.json         # plugin manifest
-├── .github/workflows/
-│   └── ci.yml              # GitHub Actions — runs tests on every push and PR
-├── bin/
-│   └── statusline.js       # the status line script
-├── test/
-│   └── statusline.test.js  # test suite (Node's built-in test runner)
-├── package.json
-├── LICENSE
-└── README.md
-```
+claude-hud reads the payload on stdin, runs `git status` in the working
+directory unless `git` is disabled, and reads your Claude config only for the
+opt-in email segment. It never makes network requests. Payload text is
+stripped of terminal control sequences before it is printed, and its cache
+lives in a private per-user temp directory. See [SECURITY.md](SECURITY.md) for
+the full model and how to report a vulnerability.
 
 ## Development
 
-claude-hud is a single, dependency-free Node script. The tests use Node's
-built-in test runner — nothing to install:
-
 ```sh
-npm test          # or: node --test
+npm run check   # syntax of every file, manifest and version consistency
+npm test        # unit, security and end-to-end tests (node:test)
+npm run demo
 ```
 
-Every push and pull request runs the suite on Node 20 and 22 via GitHub Actions
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). The **CI** badge at the
-top of this file shows whether the latest run passed.
+```
+bin/statusline.js     entry point
+lib/cli.js            argument handling, stdin, dependency wiring
+lib/render.js         payload → segments → rows
+lib/layout.js         width-aware row wrapping
+lib/sanitize.js       terminal-safe text and URLs
+lib/state.js          private on-disk cache
+lib/git.js            hardened git status
+lib/*.js              formatting, config, usage windows, timer, email, demo data
+tests/                node:test suites
+```
+
+CI runs both commands on Node.js 20, 22 and 24 across Linux, macOS and Windows.
+Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT
+[MIT](LICENSE)
