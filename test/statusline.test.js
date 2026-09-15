@@ -152,6 +152,7 @@ test('--demo showcases the new segments', () => {
   assert.match(out, /«/); // session title
   assert.match(out, /devgraviton\/claude-hud/); // repo
   assert.match(out, /PR#/); // PR
+  assert.match(out, /fable/); // per-model (Fable) usage window
   assert.match(out, /\d+h\d+m|\d+d\d+h/); // a reset countdown
 });
 
@@ -166,6 +167,56 @@ test('session and weekly usage windows render from rate_limits', () => {
   });
   assert.match(out, /session/);
   assert.match(out, /weekly/);
+});
+
+test('fable window renders after weekly from a model_scoped entry', () => {
+  const out = run({
+    input: json({
+      rate_limits: {
+        five_hour: { used_percentage: 20 },
+        seven_day: { used_percentage: 60 },
+        model_scoped: [
+          {
+            display_name: 'Fable',
+            utilization: 0.3, // 0-1 fraction → 30%
+            resets_at: '2099-01-01T00:00:00Z',
+          },
+        ],
+      },
+    }),
+  });
+  assert.match(out, /session/);
+  assert.match(out, /weekly/);
+  assert.match(out, /fable/);
+  assert.match(out, /30%/);
+  // ordering: fable comes after weekly
+  assert.ok(out.indexOf('weekly') < out.indexOf('fable'));
+});
+
+test('fable window renders from the flat seven_day_overage_included field', () => {
+  const out = run({
+    input: json({
+      rate_limits: {
+        seven_day: { used_percentage: 60 },
+        seven_day_overage_included: { used_percentage: 12 },
+      },
+    }),
+  });
+  assert.match(out, /fable/);
+  assert.match(out, /12%/);
+});
+
+test('no fable segment when the payload carries no per-model window', () => {
+  const out = run({
+    input: json({
+      rate_limits: {
+        five_hour: { used_percentage: 20 },
+        seven_day: { used_percentage: 60 },
+      },
+    }),
+  });
+  assert.match(out, /weekly/);
+  assert.doesNotMatch(out, /fable/);
 });
 
 test('a window shows a reset countdown when resets_at is in the future', () => {

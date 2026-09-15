@@ -112,6 +112,48 @@ function bar(pct, width) {
   return '█'.repeat(filled) + '░'.repeat(width - filled);
 }
 
+// ---- usage windows -------------------------------------------------------
+
+// A usage window's percent (0-100). Accepts either the statusline's
+// `used_percentage` (0-100) or the raw claude.ai `utilization` (a 0-1 fraction,
+// or occasionally already 0-100), so the same renderer handles both shapes.
+function winPercent(w) {
+  if (!w) return null;
+  if (w.used_percentage != null) return Number(w.used_percentage) || 0;
+  if (w.utilization != null) {
+    const u = Number(w.utilization) || 0;
+    return u <= 1 ? u * 100 : u; // fraction → percent; leave an already-0-100 value
+  }
+  return null;
+}
+
+// A usage window's reset time as epoch seconds. Accepts either an epoch number or
+// an ISO-8601 string (per-model windows carry the latter).
+function winResetEpoch(w) {
+  const r = w && w.resets_at;
+  if (r == null) return null;
+  if (typeof r === 'number') return r;
+  const t = Date.parse(r);
+  return Number.isFinite(t) ? Math.floor(t / 1000) : null;
+}
+
+// The Fable 5 weekly window, however Claude Code chooses to surface it: a
+// per-model entry in `model_scoped[]` (matched by display name), or the flat
+// `seven_day_overage_included` window (which the CLI's /usage view labels
+// "Fable 5 limit"). Returns null when the payload carries neither — as today's
+// statusline payload does; it exposes only `five_hour` and `seven_day`, so this
+// segment stays dormant until Claude Code starts emitting per-model windows.
+function fableWindow(rl) {
+  if (!rl) return null;
+  if (Array.isArray(rl.model_scoped)) {
+    const f = rl.model_scoped.find(
+      (m) => m && /fable/i.test(m.display_name || '')
+    );
+    if (f) return f;
+  }
+  return rl.seven_day_overage_included || null;
+}
+
 // ---- live session duration ----------------------------------------------
 
 // cost.total_duration_ms is a per-turn snapshot. To make the session timer
@@ -244,21 +286,23 @@ function build(data) {
   }
   stats.push(modelStr);
 
-  // session (5-hour) + weekly (7-day) usage windows
+  // session (5-hour) + weekly (7-day) + per-model (Fable) usage windows
   if (data.rate_limits && !DISABLED.has('limits')) {
     const rl = data.rate_limits;
     const win = (label, w) => {
-      if (!w || w.used_percentage == null) return;
-      const p = Math.round(w.used_percentage);
+      const pct = winPercent(w);
+      if (pct == null) return;
+      const p = Math.round(pct);
       const col = pctColor(p);
       let s =
         paint(COL.dim, label) + paint(col, '▕' + bar(p, 8) + '▏' + p + '%');
-      const cd = fmtCountdown(w.resets_at);
+      const cd = fmtCountdown(winResetEpoch(w));
       if (cd) s += ' ' + paint(COL.dim, cd);
       stats.push(s);
     };
     win('session', rl.five_hour);
     win('weekly', rl.seven_day);
+    win('fable', fableWindow(rl));
   }
 
   const cw = data.context_window || null;
@@ -451,6 +495,18 @@ function demoData() {
         used_percentage: 64,
         resets_at: Math.floor(Date.now() / 1000) + 4 * 86400 + 14 * 3600,
       },
+      // per-model weekly window (Claude Code's "Fable 5 limit"), in the
+      // server-driven `model_scoped[]` shape: utilization is a 0-1 fraction and
+      // resets_at is an ISO-8601 string.
+      model_scoped: [
+        {
+          display_name: 'Fable',
+          utilization: 0.12,
+          resets_at: new Date(
+            Date.now() + 4 * 86400000 + 6 * 3600000
+          ).toISOString(),
+        },
+      ],
     },
     pr: {
       number: 1234,

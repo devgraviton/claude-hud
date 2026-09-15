@@ -9,7 +9,7 @@ the terminal. It refreshes every turn (and between turns) and shows, on one
 line:
 
 ```
-Opus 4.7 (1M) xhigh | session▕░░░░░░░░▏1% | weekly▕█████░░░▏64% | ctx 31% | $14.98 7h25m38s +759-90 | out 1.2k cache 100% | you@example.com
+Opus 4.7 (1M) xhigh | session▕░░░░░░░░▏1% | weekly▕█████░░░▏64% | fable▕█░░░░░░░▏12% | ctx 31% | $14.98 7h25m38s +759-90 | out 1.2k cache 100% | you@example.com
 ```
 
 | Segment | Shows |
@@ -17,6 +17,7 @@ Opus 4.7 (1M) xhigh | session▕░░░░░░░░▏1% | weekly▕██�
 | **Model** | model name + reasoning effort level (`(1M context)` is shortened to `(1M)`) |
 | **Session** | 5-hour usage window, as a percent bar (Claude.ai Pro/Max accounts only) |
 | **Weekly** | 7-day usage window, as a percent bar (Claude.ai Pro/Max accounts only) |
+| **Fable** | per-model (Fable 5) weekly usage window — shown only when Claude Code emits a per-model window in the payload (see note below) |
 | **Context** | percent of the context window used (green &lt;50%, yellow &lt;80%, red above) |
 | **Cost** | session cost (USD), live session timer, lines added/removed |
 | **Tokens** | output tokens of the last response + cache-hit rate |
@@ -28,6 +29,14 @@ branch is read with `git`, and the account email from your local
 `~/.claude.json`. Pure Node.js — no dependencies. Requires Claude Code v2.1.132+.
 If the line is wider than the terminal it wraps onto extra rows instead of
 overflowing.
+
+> **Fable / per-model window:** as of Claude Code 2.1.199 the statusline payload
+> exposes only the `five_hour` (session) and `seven_day` (weekly) windows. The
+> per-model weekly windows Claude Code shows in `/usage` — including the "Fable 5
+> limit" — are computed internally but are **not** yet piped to statusline
+> scripts. The **fable** segment reads a per-model window (`model_scoped[]`, or
+> the flat `seven_day_overage_included`) if one is present, so it lights up
+> automatically once Claude Code starts emitting it; until then it stays hidden.
 
 ## Setup
 
@@ -80,7 +89,7 @@ shell profile):
 | Variable | Effect |
 | --- | --- |
 | `CLAUDE_HUD_WIDTH=160` | wrap segments to this many columns. Claude Code does not expose the real terminal width, so set this to your terminal's width. Default: 80. |
-| `CLAUDE_HUD_DISABLE=git,tokens` | hide segments (comma-separated): `project`, `title` (session name), `limits` (usage bars + reset countdowns), `context`, `cost`, `tokens`, `git` (branch/dirty, shells out), `repo` (`owner/name` + clickable PR, from the payload) |
+| `CLAUDE_HUD_DISABLE=git,tokens` | hide segments (comma-separated): `project`, `title` (session name), `limits` (session/weekly/fable usage bars + reset countdowns), `context`, `cost`, `tokens`, `git` (branch/dirty, shells out), `repo` (`owner/name` + clickable PR, from the payload) |
 | `CLAUDE_HUD_SHOW_EMAIL=1` | show the logged-in account email. Off by default — it appears in screenshots/screen-shares. Read live from your local `~/.claude.json`; never stored in this repo. |
 | `CLAUDE_HUD_COLOR=0` / `NO_COLOR=1` | disable ANSI colors (also suppresses clickable links) |
 
